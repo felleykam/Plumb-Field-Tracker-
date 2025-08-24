@@ -1,27 +1,33 @@
 /*
- * Plumbing Board App
- *
- * This script initializes the Firebase backend, creates and manages
- * multiple GridStack boards, and handles adding/updating cards. The goal
- * is to provide a Trello‑like experience without any subscription fees.
+ * Hell — Plumb Field Tracker
+ * Realtime Firestore (onSnapshot), GridStack layout persistence, file uploads to Storage,
+ * geotag capture, and dark UI alignment.
  */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
 import {
   getFirestore,
   collection,
-  getDocs,
   addDoc,
   updateDoc,
   doc as firestoreDoc,
+  onSnapshot,
+  query,
+  orderBy,
 } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
+import {
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+  getDownloadURL,
+} from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-storage.js';
 
-// Make GridStack available in module scope –
-// gridstack-h5.js attaches it to the global object.
-const GridStack = window.GridStack || globalThis.GridStack;
-
-// Your web app's Firebase configuration
-const firebaseConfig = {
+/** *************************************************************
+ * Firebase config:
+ * - Uses window.FIREBASE_CONFIG if present (for env override),
+ *   else falls back to your known project (update if needed).
+ ************************************************************** */
+const fallbackConfig = {
   apiKey: "AIzaSyDVgKDiwse6L8S4sf1MYvyEPInwtNfMaMg",
   authDomain: "field-tracker-155c5.firebaseapp.com",
   projectId: "field-tracker-155c5",
@@ -29,245 +35,263 @@ const firebaseConfig = {
   messagingSenderId: "553791143216",
   appId: "1:553791143216:web:b54acd483a162d7c761cf5"
 };
+const firebaseConfig = window.FIREBASE_CONFIG || fallbackConfig;
 
-// Initialize Firebase and Firestore
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-// -----------------------------------------------------------------------------
-// Application state
-// -----------------------------------------------------------------------------
-let currentBoardKey = 'jobs';
-
-const boards = {
-  jobs: {
-    element: document.getElementById('jobsBoard'),
-    grid: null,
-    collection: collection(db, 'jobs'),
-  },
-  forms: {
-    element: document.getElementById('formsBoard'),
-    grid: null,
-    collection: collection(db, 'forms'),
-  },
-  media: {
-    element: document.getElementById('mediaBoard'),
-    grid: null,
-    collection: collection(db, 'media'),
-  },
-  notes: {
-    element: document.getElementById('notesBoard'),
-    grid: null,
-    collection: collection(db, 'notes'),
-  },
-  measurements: {
-    element: document.getElementById('measurementsBoard'),
-    grid: null,
-    collection: collection(db, 'measurements'),
-  },
+/** *************************************************************
+ * Boards
+ ************************************************************** */
+const boardsMeta = {
+  jobs:         { title: 'Jobs',         coll: 'jobs' },
+  forms:        { title: 'Forms',        coll: 'forms' },
+  media:        { title: 'Media',        coll: 'media' },
+  notes:        { title: 'Notes',        coll: 'notes' },
+  measurements: { title: 'Measurements', coll: 'measurements' },
 };
 
-// -----------------------------------------------------------------------------
-// GridStack initialization
-// -----------------------------------------------------------------------------
-Object.keys(boards).forEach((key) => {
-  const board = boards[key];
-  board.grid = GridStack.init(
-    {
-      float: true,
-      cellHeight: 80,
-      disableOneColumnMode: false,
-      resizable: {
-        handles: 'se',
-      },
-    },
-    board.element
-  );
+let currentBoardKey = 'jobs';
+const boards = {}; // { key: { grid, element, collection } }
 
-  // Listen for position/size changes and persist them to Firestore
-  board.grid.on('change', (event, items) => {
-    items.forEach((item) => {
-      const docId = item.el.dataset.id;
-      if (!docId) return;
-      const { x, y, w, h } = item;
-      updateDoc(firestoreDoc(board.collection, docId), { x, y, w, h }).catch(
-        (err) => console.error('Failed to update item layout:', err)
-      );
-    });
-  });
-});
+const qs = (sel, root = document) => root.querySelector(sel);
+const qsa = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-// -----------------------------------------------------------------------------
-// Data loading
-// -----------------------------------------------------------------------------
-async function loadBoards() {
-  for (const key of Object.keys(boards)) {
-    const board = boards[key];
-    try {
-      const snapshot = await getDocs(board.collection);
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data();
-        addCardToGrid(key, docSnap.id, data);
-      });
-    } catch (error) {
-      console.error(`Error loading ${key} board:`, error);
-    }
-  }
-}
+/** *************************************************************
+ * DOM
+ ************************************************************** */
+const sidebarItems = qsa('#sidebar li');
+const addItemBtn = qs('#addItemBtn');
 
-// -----------------------------------------------------------------------------
-// Card creation and rendering
-// -----------------------------------------------------------------------------
-function addCardToGrid(boardKey, docId, data) {
-  const board = boards[boardKey];
-  const grid = board.grid;
-  const item = document.createElement('div');
-  item.className = 'grid-stack-item';
-  item.dataset.id = docId;
-  // Use saved or default positions
-  item.setAttribute('gs-x', data.x ?? 0);
-  item.setAttribute('gs-y', data.y ?? 0);
-  item.setAttribute('gs-w', data.w ?? 3);
-  item.setAttribute('gs-h', data.h ?? 1);
+const modal = qs('#modal');
+const closeModalBtn = qs('#closeModalBtn');
+const cancelBtn = qs('#cancelBtn');
+const itemForm = qs('#itemForm');
+const fileInput = qs('#fileInput');
+const getCoordsBtn = qs('#getCoordsBtn');
 
-  // Card content
-  const content = document.createElement('div');
-  content.className = 'grid-stack-item-content';
-  content.style.backgroundColor = data.color || '#54a0ff';
-  const titleEl = document.createElement('h4');
-  titleEl.textContent = data.title || 'Untitled';
-  const descEl = document.createElement('p');
-  descEl.textContent = data.description || '';
-  content.appendChild(titleEl);
-  content.appendChild(descEl);
-  // If coordinates exist, display them
-  if (data.coords) {
-    const coordsEl = document.createElement('p');
-    coordsEl.style.fontSize = '0.75em';
-    coordsEl.style.opacity = '0.7';
-    coordsEl.textContent = `(${data.coords.lat.toFixed(5)}, ${data.coords.lng.toFixed(5)})`;
-    content.appendChild(coordsEl);
-  }
-  item.appendChild(content);
-  grid.addWidget(item);
-}
-
-// -----------------------------------------------------------------------------
-// Modal handling
-// -----------------------------------------------------------------------------
-const modal = document.getElementById('modal');
-const itemForm = document.getElementById('itemForm');
-const addItemBtn = document.getElementById('addItemBtn');
-const cancelBtn = document.getElementById('cancelBtn');
-const getCoordsBtn = document.getElementById('getCoordsBtn');
-const coordsField = document.getElementById('coordsField');
-
-let tempCoords = null; // temporarily holds coordinates between button press and save
-
+/** *************************************************************
+ * Modal controls
+ ************************************************************** */
 function openModal() {
-  // Show or hide coordinate field only for Jobs board
-  if (currentBoardKey === 'jobs') {
-    coordsField.classList.remove('hidden');
-  } else {
-    coordsField.classList.add('hidden');
-  }
   modal.classList.remove('hidden');
 }
-
 function closeModal() {
   modal.classList.add('hidden');
-  // Reset form values
   itemForm.reset();
-  tempCoords = null;
-  document.getElementById('itemCoords').value = '';
+  if (fileInput) fileInput.value = '';
 }
+addItemBtn.addEventListener('click', openModal);
+closeModalBtn.addEventListener('click', closeModal);
+cancelBtn.addEventListener('click', closeModal);
 
-addItemBtn.addEventListener('click', () => {
-  openModal();
-});
-
-cancelBtn.addEventListener('click', (e) => {
-  e.preventDefault();
-  closeModal();
-});
-
-// Capture geolocation when user clicks "Use Current Location". If location
-// permission is not granted, an error is logged and coordinates remain null.
-getCoordsBtn.addEventListener('click', async () => {
-  if (!('geolocation' in navigator)) {
-    alert('Geolocation is not supported by your browser.');
-    return;
-  }
-  navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      tempCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-      document.getElementById('itemCoords').value = `${tempCoords.lat.toFixed(5)}, ${tempCoords.lng.toFixed(5)}`;
-    },
-    (err) => {
-      console.error('Error obtaining geolocation', err);
-    }
-  );
-});
-
-// Handle form submission: save the new card to Firestore and render it on the
-// current board. After saving, close the modal.
-itemForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const title = document.getElementById('itemTitle').value.trim();
-  const description = document.getElementById('itemDesc').value.trim();
-  const color = document.getElementById('itemColor').value;
-
-  const board = boards[currentBoardKey];
-  try {
-    const docRef = await addDoc(board.collection, {
-      title,
-      description,
-      color,
-      coords: tempCoords || null,
-      x: 0,
-      y: 0,
-      w: 3,
-      h: 1,
-    });
-    // Add the card to the UI
-    addCardToGrid(currentBoardKey, docRef.id, {
-      title,
-      description,
-      color,
-      coords: tempCoords,
-      x: 0,
-      y: 0,
-      w: 3,
-      h: 1,
-    });
-  } catch (error) {
-    console.error('Error adding document:', error);
-  }
-  closeModal();
-});
-
-// -----------------------------------------------------------------------------
-// Sidebar navigation
-// -----------------------------------------------------------------------------
-const sidebarItems = document.querySelectorAll('#sidebar li');
+/** *************************************************************
+ * Sidebar switching
+ ************************************************************** */
 sidebarItems.forEach((item) => {
   item.addEventListener('click', () => {
-    // Remove 'active' class from all items and assign to the clicked one
-    sidebarItems.forEach((i) => i.classList.remove('active'));
+    sidebarItems.forEach(i => i.classList.remove('active'));
     item.classList.add('active');
 
     const boardKey = item.dataset.board;
     currentBoardKey = boardKey;
-    // Hide all boards and show the selected one
-    Object.keys(boards).forEach((key) => {
-      boards[key].element.classList.add('hidden');
-    });
+
+    qsa('.board').forEach(b => b.classList.add('hidden'));
     boards[boardKey].element.classList.remove('hidden');
   });
 });
 
-// -----------------------------------------------------------------------------
-// Initial load
-// -----------------------------------------------------------------------------
-loadBoards().catch((err) => console.error('Error loading boards:', err));
+/** *************************************************************
+ * Geolocation
+ ************************************************************** */
+getCoordsBtn.addEventListener('click', () => {
+  if (!navigator.geolocation) {
+    alert('Geolocation not supported by this browser.');
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const { latitude, longitude } = pos.coords;
+      itemForm.elements.coords.value = `${latitude.toFixed(6)},${longitude.toFixed(6)}`;
+    },
+    (err) => alert(`Location error: ${err.message}`)
+  );
+});
+
+/** *************************************************************
+ * Grid / Card helpers
+ ************************************************************** */
+function boardContainerEl(key) {
+  return document.querySelector(`.grid-stack[data-board="${key}"]`);
+}
+
+function createCardEl(data) {
+  const item = document.createElement('div');
+  item.className = 'grid-stack-item';
+  item.dataset.id = data.id;
+
+  if (typeof data.x === 'number') item.setAttribute('gs-x', data.x);
+  if (typeof data.y === 'number') item.setAttribute('gs-y', data.y);
+  item.setAttribute('gs-w', data.w ?? 3);
+  item.setAttribute('gs-h', data.h ?? 2); // default taller for readability
+
+  const content = document.createElement('div');
+  content.className = 'grid-stack-item-content';
+  if (data.color) content.style.backgroundColor = data.color;
+
+  // Title + Desc
+  const title = document.createElement('h4');
+  title.textContent = data.title || 'Untitled';
+
+  const desc = document.createElement('p');
+  desc.textContent = data.description || '';
+
+  content.append(title, desc);
+
+  // Tests
+  if (data.preRough || data.subRough) {
+    const tests = document.createElement('div');
+    tests.className = 'tests';
+    if (data.preRough) {
+      const t = document.createElement('span');
+      t.className = `badge ${data.preRough === 'PASS' ? 'pass' : 'fail'}`;
+      t.textContent = `Pre-Rough: ${data.preRough}`;
+      tests.appendChild(t);
+    }
+    if (data.subRough) {
+      const t = document.createElement('span');
+      t.className = `badge ${data.subRough === 'PASS' ? 'pass' : 'fail'}`;
+      t.textContent = `Sub-Rough: ${data.subRough}`;
+      tests.appendChild(t);
+    }
+    content.appendChild(tests);
+  }
+
+  // Coordinates
+  if (data.coords) {
+    const c = document.createElement('p');
+    c.className = 'coords';
+    c.textContent = `@ ${data.coords}`;
+    content.appendChild(c);
+  }
+
+  // Files
+  if (Array.isArray(data.files) && data.files.length) {
+    const list = document.createElement('ul');
+    list.className = 'files';
+    for (const f of data.files) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = f.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = f.name || 'file';
+      li.appendChild(a);
+      list.appendChild(li);
+    }
+    content.appendChild(list);
+  }
+
+  item.appendChild(content);
+  return item;
+}
+
+function addCardToGrid(boardKey, id, data) {
+  const grid = boards[boardKey].grid;
+  const el = createCardEl({ id, ...data });
+  grid.addWidget(el);
+}
+
+/** *************************************************************
+ * Boards init + realtime listeners
+ ************************************************************** */
+async function createBoard(key) {
+  const el = boardContainerEl(key);
+  const grid = GridStack.init(
+    {
+      float: true,
+      cellHeight: 100,
+      minRow: 1,
+      column: 12,
+      margin: 8,
+      animate: true,
+      resizable: { handles: 'e, se, s, sw, w' },
+      draggable: { handle: '.grid-stack-item-content' }
+    },
+    el
+  );
+
+  // persist moves/sizes
+  grid.on('change', async (_e, items) => {
+    for (const it of items) {
+      const id = it.el?.dataset?.id;
+      if (!id) continue;
+      const coll = boardsMeta[key].coll;
+      const ref = firestoreDoc(db, coll, id);
+      await updateDoc(ref, { x: it.x, y: it.y, w: it.w, h: it.h, updatedAt: Date.now() });
+    }
+  });
+
+  const element = el.parentElement;
+  const collectionRef = collection(db, boardsMeta[key].coll);
+  boards[key] = { grid, element, collection: collectionRef };
+
+  // realtime feed
+  const qRef = query(collectionRef, orderBy('createdAt', 'asc'));
+  onSnapshot(qRef, (snap) => {
+    grid.removeAll();
+    snap.forEach((docSnap) => addCardToGrid(key, docSnap.id, docSnap.data()));
+  });
+}
+
+async function initBoards() {
+  for (const key of Object.keys(boardsMeta)) {
+    await createBoard(key);
+  }
+}
+initBoards().catch((e) => console.error('Init error:', e));
+
+/** *************************************************************
+ * Form submit (create doc + optional uploads)
+ ************************************************************** */
+function asNum(v, def) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : def;
+}
+
+itemForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(itemForm).entries());
+
+  const w = asNum(data.w, 3);
+  const h = asNum(data.h, 2);
+
+  // Upload files to Storage (if any)
+  let filesMeta = [];
+  const files = fileInput?.files || [];
+  for (const file of files) {
+    const path = `${boardsMeta[currentBoardKey].coll}/${Date.now()}_${file.name}`;
+    const ref = storageRef(storage, path);
+    await uploadBytes(ref, file);
+    const url = await getDownloadURL(ref);
+    filesMeta.push({ name: file.name, url, path });
+  }
+
+  const payload = {
+    title: data.title || 'Untitled',
+    description: data.description || '',
+    color: data.color || '#6aa9ff',
+    preRough: data.preRough || '',
+    subRough: data.subRough || '',
+    coords: data.coords || '',
+    files: filesMeta,
+    x: 0, y: 0, w, h,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  await addDoc(boards[currentBoardKey].collection, payload);
+  closeModal();
+});
 

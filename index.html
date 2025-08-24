@@ -1,88 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Plumbing Board App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hell — Plumb Field Tracker</title>
+
   <!-- GridStack CSS -->
-  <link
-    rel="stylesheet"
-    href="https://cdn.jsdelivr.net/npm/gridstack@8.2.6/dist/gridstack.min.css"
-  />
-  <!-- Custom styles -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridstack@8.2.6/dist/gridstack.min.css" />
+  <!-- App styles -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <nav id="sidebar">
-    <h2>Plumbing Board</h2>
-    <ul>
-      <!-- Each list item switches the visible board -->
-      <li data-board="jobs" class="active">Jobs</li>
-      <li data-board="forms">Forms</li>
-      <li data-board="media">Media</li>
-      <li data-board="notes">Notes</li>
-      <li data-board="measurements">Measurements</li>
-    </ul>
-  </nav>
-  <main>
-    <!-- Toolbar contains global actions like adding cards -->
-    <div id="toolbar">
-      <button id="addItemBtn">Add Card</button>
+  <aside id="sidebar">
+    <h1>HELL</h1>
+    <nav>
+      <ul>
+        <li class="active" data-board="jobs">Jobs</li>
+        <li data-board="forms">Forms</li>
+        <li data-board="media">Media</li>
+        <li data-board="notes">Notes</li>
+        <li data-board="measurements">Measurements</li>
+      </ul>
+    </nav>
+    <div class="sidebar-footer">
+      <button id="addItemBtn" class="button primary">+ Add Card</button>
     </div>
-    <!-- Container for all boards. Only one board is visible at a time -->
-    <div id="boardContainer">
-      <div id="jobsBoard" class="board grid-stack"></div>
-      <div id="formsBoard" class="board grid-stack hidden"></div>
-      <div id="mediaBoard" class="board grid-stack hidden"></div>
-      <div id="notesBoard" class="board grid-stack hidden"></div>
-      <div id="measurementsBoard" class="board grid-stack hidden"></div>
-    </div>
+  </aside>
+
+  <div class="topbar">
+    <div class="brand">Plumb Field Tracker</div>
+    <div class="spacer"></div>
+    <div class="hint">Drag to move • Resize corners to grow</div>
+  </div>
+
+  <main id="main">
+    <!-- Boards -->
+    <section id="board-jobs" class="board">
+      <div class="grid-stack" data-board="jobs"></div>
+    </section>
+    <section id="board-forms" class="board hidden">
+      <div class="grid-stack" data-board="forms"></div>
+    </section>
+    <section id="board-media" class="board hidden">
+      <div class="grid-stack" data-board="media"></div>
+    </section>
+    <section id="board-notes" class="board hidden">
+      <div class="grid-stack" data-board="notes"></div>
+    </section>
+    <section id="board-measurements" class="board hidden">
+      <div class="grid-stack" data-board="measurements"></div>
+    </section>
   </main>
 
-  <!-- Modal for creating a new card -->
-  <div id="modal" class="modal hidden">
-    <div class="modal-content">
-      <h3>Add Card</h3>
-      <form id="itemForm">
-        <label>
-          Title:<br />
-          <input type="text" id="itemTitle" required />
-        </label>
-        <br />
-        <label>
-          Description:<br />
-          <textarea id="itemDesc" rows="3"></textarea>
-        </label>
-        <br />
-        <label>
-          Color:<br />
-          <select id="itemColor">
-            <option value="#54a0ff">Blue</option>
-            <option value="#ff6b6b">Red</option>
-            <option value="#1dd1a1">Green</option>
-            <option value="#feca57">Yellow</option>
-          </select>
-        </label>
-        <br />
-        <!-- Coordinates are only used on the Jobs board. They will be filled via JS when geolocation is requested -->
-        <div id="coordsField" class="hidden">
+  <!-- Modal -->
+  <div id="modal" class="hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal">
+      <header>
+        <h3>New Card</h3>
+        <button id="closeModalBtn" aria-label="Close" class="icon-btn">✕</button>
+      </header>
+      <div class="content">
+        <form id="itemForm">
           <label>
-            Coordinates:<br />
-            <input type="text" id="itemCoords" readonly />
+            Title
+            <input type="text" name="title" placeholder="e.g., 86th Riverwalk — Master Bath" required />
           </label>
-          <button type="button" id="getCoordsBtn">Use Current Location</button>
-        </div>
-        <br />
-        <button type="submit">Save</button>
-        <button type="button" id="cancelBtn">Cancel</button>
-      </form>
+
+          <label>
+            Description
+            <textarea name="description" rows="3" placeholder="Scope, materials, notes…"></textarea>
+          </label>
+
+          <div class="row">
+            <label class="grow">
+              Accent Color
+              <input type="color" name="color" value="#6aa9ff" />
+            </label>
+            <label>
+              W (cols)
+              <input type="number" name="w" min="1" max="12" value="3" />
+            </label>
+            <label>
+              H (rows)
+              <input type="number" name="h" min="1" max="12" value="2" />
+            </label>
+          </div>
+
+          <fieldset>
+            <legend>Tests</legend>
+            <div class="row">
+              <label>
+                Pre-Rough
+                <select name="preRough">
+                  <option value="">—</option>
+                  <option value="PASS">PASS</option>
+                  <option value="FAIL">FAIL</option>
+                </select>
+              </label>
+              <label>
+                Sub-Rough
+                <select name="subRough">
+                  <option value="">—</option>
+                  <option value="PASS">PASS</option>
+                  <option value="FAIL">FAIL</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Attachments</legend>
+            <input id="fileInput" type="file" multiple accept="image/*,.pdf" />
+            <small>Uploads (images/PDFs) go to Firebase Storage.</small>
+          </fieldset>
+
+          <div class="row">
+            <label class="grow">
+              Location (lat,lng)
+              <input type="text" name="coords" placeholder="40.389000,-111.904000" />
+            </label>
+            <button type="button" id="getCoordsBtn" class="button">Use Current Location</button>
+          </div>
+        </form>
+      </div>
+      <footer>
+        <button id="cancelBtn" class="button secondary">Cancel</button>
+        <button type="submit" form="itemForm" class="button primary">Save</button>
+      </footer>
     </div>
   </div>
 
-  <!-- GridStack JS (HTML5 version) -->
+  <!-- GridStack JS (HTML5) -->
   <script src="https://cdn.jsdelivr.net/npm/gridstack@8.2.6/dist/gridstack-h5.js"></script>
-  <!-- Firebase SDKs (modular v9) -->
+  <!-- App JS -->
   <script type="module" src="app.js"></script>
 </body>
 </html>

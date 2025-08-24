@@ -16,6 +16,10 @@ import {
   doc as firestoreDoc,
 } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js';
 
+// Make GridStack available in module scope –
+// gridstack-h5.js attaches it to the global object.
+const GridStack = window.GridStack || globalThis.GridStack;
+
 // Your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDVgKDiwse6L8S4sf1MYvyEPInwtNfMaMg",
@@ -80,6 +84,7 @@ Object.keys(boards).forEach((key) => {
     board.element
   );
 
+  // Listen for position/size changes and persist them to Firestore
   board.grid.on('change', (event, items) => {
     items.forEach((item) => {
       const docId = item.el.dataset.id;
@@ -119,11 +124,13 @@ function addCardToGrid(boardKey, docId, data) {
   const item = document.createElement('div');
   item.className = 'grid-stack-item';
   item.dataset.id = docId;
+  // Use saved or default positions
   item.setAttribute('gs-x', data.x ?? 0);
   item.setAttribute('gs-y', data.y ?? 0);
   item.setAttribute('gs-w', data.w ?? 3);
   item.setAttribute('gs-h', data.h ?? 1);
 
+  // Card content
   const content = document.createElement('div');
   content.className = 'grid-stack-item-content';
   content.style.backgroundColor = data.color || '#54a0ff';
@@ -133,6 +140,7 @@ function addCardToGrid(boardKey, docId, data) {
   descEl.textContent = data.description || '';
   content.appendChild(titleEl);
   content.appendChild(descEl);
+  // If coordinates exist, display them
   if (data.coords) {
     const coordsEl = document.createElement('p');
     coordsEl.style.fontSize = '0.75em';
@@ -154,9 +162,10 @@ const cancelBtn = document.getElementById('cancelBtn');
 const getCoordsBtn = document.getElementById('getCoordsBtn');
 const coordsField = document.getElementById('coordsField');
 
-let tempCoords = null;
+let tempCoords = null; // temporarily holds coordinates between button press and save
 
 function openModal() {
+  // Show or hide coordinate field only for Jobs board
   if (currentBoardKey === 'jobs') {
     coordsField.classList.remove('hidden');
   } else {
@@ -167,6 +176,7 @@ function openModal() {
 
 function closeModal() {
   modal.classList.add('hidden');
+  // Reset form values
   itemForm.reset();
   tempCoords = null;
   document.getElementById('itemCoords').value = '';
@@ -181,6 +191,8 @@ cancelBtn.addEventListener('click', (e) => {
   closeModal();
 });
 
+// Capture geolocation when user clicks "Use Current Location". If location
+// permission is not granted, an error is logged and coordinates remain null.
 getCoordsBtn.addEventListener('click', async () => {
   if (!('geolocation' in navigator)) {
     alert('Geolocation is not supported by your browser.');
@@ -197,6 +209,8 @@ getCoordsBtn.addEventListener('click', async () => {
   );
 });
 
+// Handle form submission: save the new card to Firestore and render it on the
+// current board. After saving, close the modal.
 itemForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const title = document.getElementById('itemTitle').value.trim();
@@ -215,6 +229,7 @@ itemForm.addEventListener('submit', async (e) => {
       w: 3,
       h: 1,
     });
+    // Add the card to the UI
     addCardToGrid(currentBoardKey, docRef.id, {
       title,
       description,
@@ -237,11 +252,13 @@ itemForm.addEventListener('submit', async (e) => {
 const sidebarItems = document.querySelectorAll('#sidebar li');
 sidebarItems.forEach((item) => {
   item.addEventListener('click', () => {
+    // Remove 'active' class from all items and assign to the clicked one
     sidebarItems.forEach((i) => i.classList.remove('active'));
     item.classList.add('active');
 
     const boardKey = item.dataset.board;
     currentBoardKey = boardKey;
+    // Hide all boards and show the selected one
     Object.keys(boards).forEach((key) => {
       boards[key].element.classList.add('hidden');
     });
@@ -253,3 +270,4 @@ sidebarItems.forEach((item) => {
 // Initial load
 // -----------------------------------------------------------------------------
 loadBoards().catch((err) => console.error('Error loading boards:', err));
+

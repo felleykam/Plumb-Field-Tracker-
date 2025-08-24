@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plumbing Board App</title>
+  <!-- GridStack CSS -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/gridstack@8.2.6/dist/gridstack.min.css"
+  />
+  <!-- Custom styles -->
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <nav id="sidebar">
+    <h2>Plumbing Board</h2>
+    <ul>
+      <!-- Each list item switches the visible board -->
+      <li data-board="jobs" class="active">Jobs</li>
+      <li data-board="forms">Forms</li>
+      <li data-board="media">Media</li>
+      <li data-board="notes">Notes</li>
+      <li data-board="measurements">Measurements</li>
+    </ul>
+  </nav>
+  <main>
+    <!-- Toolbar contains global actions like adding cards -->
+    <div id="toolbar">
+      <button id="addItemBtn">Add Card</button>
+    </div>
+    <!-- Container for all boards. Only one board is visible at a time -->
+    <div id="boardContainer">
+      <div id="jobsBoard" class="board grid-stack"></div>
+      <div id="formsBoard" class="board grid-stack hidden"></div>
+      <div id="mediaBoard" class="board grid-stack hidden"></div>
+      <div id="notesBoard" class="board grid-stack hidden"></div>
+      <div id="measurementsBoard" class="board grid-stack hidden"></div>
+    </div>
+  </main>
+
+  <!-- Modal for creating a new card -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Add Card</h3>
+      <form id="itemForm">
+        <label>
+          Title:<br />
+          <input type="text" id="itemTitle" required />
+        </label>
+        <br />
+        <label>
+          Description:<br />
+          <textarea id="itemDesc" rows="3"></textarea>
+        </label>
+        <br />
+        <label>
+          Color:<br />
+          <select id="itemColor">
+            <option value="#54a0ff">Blue</option>
+            <option value="#ff6b6b">Red</option>
+            <option value="#1dd1a1">Green</option>
+            <option value="#feca57">Yellow</option>
+          </select>
+        </label>
+        <br />
+        <!-- Coordinates are only used on the Jobs board. They will be filled via JS when geolocation is requested -->
+        <div id="coordsField" class="hidden">
+          <label>
+            Coordinates:<br />
+            <input type="text" id="itemCoords" readonly />
+          </label>
+          <button type="button" id="getCoordsBtn">Use Current Location</button>
+        </div>
+        <br />
+        <button type="submit">Save</button>
+        <button type="button" id="cancelBtn">Cancel</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- GridStack JS (HTML5 version) -->
+  <script src="https://cdn.jsdelivr.net/npm/gridstack@8.2.6/dist/gridstack-h5.js"></script>
+  <!-- Firebase SDKs (modular v9) -->
+  <script type="module" src="app.js"></script>
+</body>
+</html>
